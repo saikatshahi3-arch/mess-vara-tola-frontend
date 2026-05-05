@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
 import { Trash2, Edit, CheckCircle, AlertTriangle, History, LayoutDashboard, Calendar, Lock, DollarSign, LogOut } from 'lucide-react';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://tahshin-mess-vara-tola.onrender.com/';
 
 function App() {
   // Authentication State
