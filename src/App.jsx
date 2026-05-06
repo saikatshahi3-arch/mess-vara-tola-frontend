@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
-import { Trash2, Edit, CheckCircle, AlertTriangle, History, LayoutDashboard, Calendar, Lock, DollarSign, LogOut } from 'lucide-react';
+import { Trash2, Edit, CheckCircle, AlertTriangle, History, LayoutDashboard, Calendar, Lock, DollarSign, LogOut, Loader2 } from 'lucide-react';
 
 const API_URL = 'https://tahshin-mess-vara-tola.onrender.com/api';
 
@@ -8,6 +8,9 @@ function App() {
   // Authentication State
   const [isAuthenticated, setIsAuthenticated] = useState(localStorage.getItem('mess_auth') === 'true');
   const [pin, setPin] = useState('');
+  
+  // Loading State (সার্ভার ওয়েক-আপ ও ডাটা ফেচিংয়ের জন্য)
+  const [isLoading, setIsLoading] = useState(false);
 
   const [members, setMembers] = useState([]);
   const [historyData, setHistoryData] = useState([]);
@@ -23,24 +26,25 @@ function App() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setIsLoading(true); // রিকোয়েস্ট যাওয়ার আগে লোডিং শুরু
     try {
-      // পিনটি ব্যাকএন্ডে পাঠানো হচ্ছে
       const res = await fetch(`${API_URL}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin })
       });
       
-      // ব্যাকএন্ড যদি বলে পিন সঠিক (res.ok)
       if (res.ok) {
         setIsAuthenticated(true);
-        localStorage.setItem('mess_auth', 'true'); // ব্রাউজারে সেভ করে রাখছি যেন রিলোড দিলে লগআউট না হয়
+        localStorage.setItem('mess_auth', 'true');
         toast.success('লগইন সফল হয়েছে!');
       } else {
         toast.error('ভুল পিন দিয়েছেন!');
       }
     } catch (error) {
-      toast.error('সার্ভার কানেকশন এরর!');
+      toast.error('সার্ভার চালু হচ্ছে, দয়া করে একটু অপেক্ষা করুন!');
+    } finally {
+      setIsLoading(false); // রেসপন্স আসার পর লোডিং বন্ধ
     }
   };
 
@@ -50,9 +54,9 @@ function App() {
     toast.success('লগআউট করা হয়েছে');
   };
 
-  // ডাটাবেজ থেকে ডাটা আনা (আগের মতোই)
   const fetchData = async () => {
     if (!isAuthenticated) return;
+    setIsLoading(true); // ডাটা আনার আগে লোডিং শুরু
     try {
       const memRes = await fetch(`${API_URL}/members`);
       const memData = await memRes.json();
@@ -71,6 +75,8 @@ function App() {
       
     } catch (error) {
       toast.error('ডাটা লোড করতে সমস্যা হয়েছে!');
+    } finally {
+      setIsLoading(false); // ডাটা আসার পর লোডিং বন্ধ
     }
   };
 
@@ -78,18 +84,16 @@ function App() {
     fetchData();
   }, [isAuthenticated]);
 
-  // নতুন হিসাব ক্যালকুলেশন (আংশিক পেমেন্ট ও বকেয়াসহ)
   const totalExpected = members.reduce((sum, m) => sum + (m.rentAmount + m.previousDue), 0);
   const totalCollected = members.reduce((sum, m) => sum + m.paidAmount, 0);
   const dueAmount = totalExpected - totalCollected;
   
-  // যারা পুরো টাকা দিয়ে দিয়েছে তাদের কাউন্ট
   const fullyPaidMembersCount = members.filter(m => m.paidAmount >= (m.rentAmount + m.previousDue)).length;
   const unpaidMembersCount = members.length - fullyPaidMembersCount;
 
-  // মেম্বার অ্যাড বা আপডেট করা
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsLoading(true);
     try {
       const payload = { ...formData, previousDue: Number(formData.previousDue) || 0 };
       
@@ -113,11 +117,12 @@ function App() {
       fetchData();
     } catch (error) {
       toast.error('কোনো একটি সমস্যা হয়েছে!');
+      setIsLoading(false);
     }
   };
 
-  // মডাল কনফার্মেশন অ্যাকশন (নতুন পেমেন্ট লজিকসহ)
   const handleModalConfirm = async () => {
+    setIsLoading(true);
     try {
       if (modal.type === 'delete') {
         await fetch(`${API_URL}/members/${modal.id}`, { method: 'DELETE' });
@@ -132,6 +137,7 @@ function App() {
         setActiveTab('history');
       } else if (modal.type === 'pay') {
         if (!paymentAmount || paymentAmount <= 0) {
+          setIsLoading(false);
           return toast.error('সঠিক টাকার পরিমাণ দিন!');
         }
         await fetch(`${API_URL}/members/${modal.id}/pay`, { 
@@ -150,14 +156,24 @@ function App() {
       setPaymentAmount('');
     } catch (error) {
       toast.error('কাজটি সম্পন্ন করা যায়নি!');
+      setIsLoading(false);
     }
   };
 
-  // লগইন স্ক্রিন (যদি অথেনটিকেটেড না হয়)
+  // ফুল স্ক্রিন লোডিং ওভারলে
+  const LoadingOverlay = () => (
+    <div className="fixed inset-0 bg-white/70 backdrop-blur-sm flex flex-col justify-center items-center z-[100]">
+      <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
+      <h3 className="text-lg font-bold text-slate-800">সার্ভারের সাথে কানেক্ট হচ্ছে...</h3>
+      <p className="text-sm text-slate-500 mt-2">প্রথমবার লোড হতে ২০-৩০ সেকেন্ড সময় লাগতে পারে</p>
+    </div>
+  );
+
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-800">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-800 relative">
         <Toaster position="top-right" />
+        {isLoading && <LoadingOverlay />}
         <div className="bg-white p-8 rounded-3xl shadow-xl max-w-sm w-full text-center border border-slate-100 animate-in zoom-in-95 duration-300">
           <div className="bg-indigo-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
             <Lock className="w-10 h-10 text-indigo-600" />
@@ -173,8 +189,12 @@ function App() {
               onChange={(e) => setPin(e.target.value)}
               required
             />
-            <button type="submit" className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold cursor-pointer hover:bg-indigo-700 transition shadow-md hover:shadow-lg active:scale-95">
-              প্রবেশ করুন
+            <button 
+              type="submit" 
+              disabled={isLoading}
+              className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold cursor-pointer hover:bg-indigo-700 transition shadow-md hover:shadow-lg active:scale-95 disabled:bg-indigo-400 disabled:cursor-not-allowed flex justify-center items-center"
+            >
+              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'প্রবেশ করুন'}
             </button>
           </form>
           <p className="text-xs text-slate-400 mt-6 font-mono">Default PIN: 1234</p>
@@ -183,14 +203,13 @@ function App() {
     );
   }
 
-  // মূল ড্যাশবোর্ড
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-6 font-sans text-slate-800">
+    <div className="min-h-screen bg-slate-50 p-4 md:p-6 font-sans text-slate-800 relative">
       <Toaster position="top-right" />
+      {isLoading && <LoadingOverlay />}
 
       <div className="max-w-6xl mx-auto space-y-6 md:space-y-8">
 
-        {/* হেডার ও নেভিগেশন (লগআউট বাটন যুক্ত করা হয়েছে) */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900">মেস ম্যানেজমেন্ট</h1>
@@ -223,10 +242,8 @@ function App() {
           </div>
         </div>
 
-        {/* ড্যাশবোর্ড ভিউ */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6 md:space-y-8 animate-in fade-in duration-300">
-            {/* সামারি কার্ডস (তোমার আগের ডিজাইন অনুযায়ী আপডেট করা হয়েছে) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
               <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 border-l-4 border-l-indigo-500">
                 <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">মোট প্রাপ্য (বকেয়াসহ)</p>
@@ -261,7 +278,6 @@ function App() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
-              {/* অ্যাড/এডিট মেম্বার ফর্ম */}
               <div className="lg:col-span-1">
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 sticky top-6">
                   <h3 className="text-lg font-semibold mb-4">{isEditing ? 'মেম্বার আপডেট করুন' : 'নতুন মেম্বার অ্যাড করুন'}</h3>
@@ -284,11 +300,11 @@ function App() {
                         <input type="number" className="w-full border border-rose-200 bg-rose-50 text-rose-700 p-2 rounded-lg outline-none focus:ring-2 focus:ring-rose-500" value={formData.previousDue} onChange={(e) => setFormData({ ...formData, previousDue: e.target.value })} placeholder="০" />
                       </div>
                     </div>
-                    <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-lg font-medium cursor-pointer hover:bg-indigo-700 transition active:scale-95">
+                    <button type="submit" disabled={isLoading} className="w-full bg-indigo-600 text-white py-2 rounded-lg font-medium cursor-pointer hover:bg-indigo-700 transition active:scale-95 disabled:bg-indigo-400">
                       {isEditing ? 'আপডেট করুন' : 'অ্যাড করুন'}
                     </button>
                     {isEditing && (
-                      <button type="button" onClick={() => { setIsEditing(null); setFormData({ name: '', room: '', rentAmount: '', previousDue: 0 }) }} className="w-full mt-2 bg-slate-100 text-slate-600 py-2 rounded-lg font-medium cursor-pointer hover:bg-slate-200 transition">
+                      <button type="button" disabled={isLoading} onClick={() => { setIsEditing(null); setFormData({ name: '', room: '', rentAmount: '', previousDue: 0 }) }} className="w-full mt-2 bg-slate-100 text-slate-600 py-2 rounded-lg font-medium cursor-pointer hover:bg-slate-200 transition disabled:opacity-50">
                         ক্যান্সেল
                       </button>
                     )}
@@ -296,7 +312,6 @@ function App() {
                 </div>
               </div>
 
-              {/* মেম্বার লিস্ট টেবিল */}
               <div className="lg:col-span-2">
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                   <div className="overflow-x-auto">
@@ -379,7 +394,6 @@ function App() {
                   {members.length === 0 && <p className="text-center text-slate-500 p-6">কোনো মেম্বার নেই। নতুন মেম্বার অ্যাড করুন।</p>}
                 </div>
 
-                {/* মাস শেষ করার বাটন (তোমার আগের ডিজাইন অনুযায়ী) */}
                 {members.length > 0 && (
                   <div className="mt-6 flex justify-end">
                     <button
@@ -395,7 +409,6 @@ function App() {
           </div>
         )}
 
-        {/* হিস্ট্রি ভিউ (তোমার আগের ডিজাইন হুবহু রাখা হয়েছে) */}
         {activeTab === 'history' && (
           <div className="space-y-6 animate-in fade-in duration-300">
             <h2 className="text-xl font-bold text-slate-800 border-b pb-2">পূর্বের মাসের রেকর্ডসমূহ</h2>
@@ -445,7 +458,6 @@ function App() {
         )}
       </div>
 
-      {/* কাস্টম মডাল (পেমেন্ট ইনপুট লজিকসহ) */}
       {modal.isOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex justify-center items-center z-50 p-4">
           <div className="bg-white p-6 rounded-2xl shadow-xl max-w-sm w-full mx-auto animate-in zoom-in-95 duration-200">
@@ -474,14 +486,17 @@ function App() {
             <div className="flex justify-end space-x-3">
               <button 
                 onClick={() => { setModal({ isOpen: false }); setPaymentAmount(''); }} 
-                className="px-4 py-2 font-medium text-slate-600 cursor-pointer hover:bg-slate-100 rounded-lg transition"
+                disabled={isLoading}
+                className="px-4 py-2 font-medium text-slate-600 cursor-pointer hover:bg-slate-100 rounded-lg transition disabled:opacity-50"
               >
                 বাতিল
               </button>
               <button 
                 onClick={handleModalConfirm} 
-                className={`px-4 py-2 font-medium cursor-pointer text-white rounded-lg transition active:scale-95 ${modal.type === 'pay' ? 'bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-200' : 'bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-200'}`}
+                disabled={isLoading}
+                className={`px-4 py-2 font-medium cursor-pointer text-white rounded-lg transition active:scale-95 disabled:opacity-70 flex justify-center items-center ${modal.type === 'pay' ? 'bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-200' : 'bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-200'}`}
               >
+                {isLoading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
                 নিশ্চিত করুন
               </button>
             </div>
